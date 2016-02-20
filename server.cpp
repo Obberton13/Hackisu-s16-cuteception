@@ -36,8 +36,8 @@ struct handler {
 		res = server::response::stock_reply(server::response::ok, "got it!");
 	}
 	void log(const server::string_type& message) {
-        std::cerr << "ERROR: " << message << std::endl;
-    }
+		std::cerr << "ERROR: " << message << std::endl;
+	}
 };
 
 int main() {
