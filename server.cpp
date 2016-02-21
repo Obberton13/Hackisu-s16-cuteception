@@ -120,37 +120,48 @@ std::string stringsToJson(std::string*** strings, int height, int width)
 	return toReturn;
 }
 
-void RGBtoLAB(unsigned char const &r, unsigned char const &g, unsigned char const &b, float *l, float *a, float *bb)
+void RGBtoLAB(unsigned char r, unsigned char g, unsigned char b, float *l, float *a, float *bb)
 {
+	float fr, fg, fb;
+	//for some reason, the site gave us the RGB parameters backwards, 
+	//so we do BGR instead of RGB, and I'm too lazy to actually 
+	//change all of them, so I'm only changing them here.
+	fr = (float)b / 255.0f;
+	fg = (float)g / 255.0f;
+	fb = (float)r / 255.0f;
+
+	if(fr > .04045) fr = pow((fr+.055f)/1.055f, 2.4f);
+	else fr = fr/12.92;
+	if(fg > .04045) fg = pow((fg+.055f)/1.055f, 2.4f);
+	else fg = fg/12.92;
+	if(fb > .04045) fb = pow((fb+.055f)/1.055f, 2.4f);
+	else fb = fb/12.92;
+	
+	fr *= 100.f;
+	fg *= 100.f;
+	fb *= 100.f;
+
 	float x, y, z;
-	x = b * labXb_32f + g * labXg_32f + r * labXr_32f;
-	y = b * labYb_32f + g * labYg_32f + r * labYr_32f;
-	z = b * labZb_32f + g * labZg_32f + r * labZr_32f;
-	if(x > labT_32f) {
-		x=cbrt(x);
-	}
-	else {
-		x = x*labSmallScale_32f + labSmallShift_32f;
-	}
+	x = fb * 0.4124f + fg * 0.3576f + fr * 0.1805f;
+	y = fb * 0.2126f + fg * 0.7152f + fr * 0.0722f;
+	z = fb * 0.0193f + fg * 0.1192f + fr * 0.9505f;
 
-	if( z > labT_32f ){
-		z = cbrt(z);
-	}
-	else {
-		z = z*labSmallScale_32f + labSmallShift_32f;
-	}
+	x = x/95.047f;
+	y = y/100.0f;
+	z = z/108.883;
 
-	if( y > labT_32f ) {
-		y = cbrt(y);
-		*l = y*labLScale_32f - labLShift_32f;
-	}
-	else {
-		*l = y*labLScale2_32f;
-		y = y*labSmallScale_32f + labSmallShift_32f;
-	}
-	*a = 500.f*(x - y);
-	*bb = 200.f*(y - z);
+	float f = 16.f/116.f;
 
+	if(x > 0.008856f) x = cbrt(x);
+	else x = 7.787f * x + f;
+	if(y > 0.008856f) y = cbrt(y);
+	else y = 7.787f * y + f;
+	if(z > 0.008856f) z = cbrt(z);
+	else z = 7.787f * z + f;
+
+	*l = 116.f * y - 16.f;
+	*a = 500.f * (x - y);
+	*bb = 200.f * (y - z);
 }
 
 flann::Index<flann::L2_3D<unsigned char> >* allocIndexFromTextFile(const std::string& filename, std::unordered_multimap<int, std::string>* pointImageMap) {
