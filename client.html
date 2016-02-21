@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>	
+
+<head>
+	<title>Cat Cat Cats!</title>
+</head>
+
+<body>
+	<style scoped>
+		html,body {
+			margin: 0;
+			height: 100%;
+			width: 100%;
+			overflow: hidden;
+
+			background: #606c88; /* fallback for old browsers */
+			background: -webkit-linear-gradient(to left, #606c88 , #3f4c6b); /* Chrome 10-25, Safari 5.1-6 */
+			background: linear-gradient(to left, #606c88 , #3f4c6b); /* W3C, IE 10+/ Edge, Firefox 16+, Chrome 26+, Opera 12+, Safari 7+ */
+		}
+
+		#cat-spinner {
+			opacity: 0;
+			position: fixed;
+			display: none;
+			left: calc(50% - 200px);
+			top: calc(50% - 166px);
+			-webkit-animation-name: rotate;
+			-webkit-animation-duration: 2s;
+			-webkit-animation-iteration-count: infinite;
+			-webkit-animation-timing-function: linear;
+			transition: opacity 0.5s;
+		}
+
+		@-webkit-keyframes rotate {
+			from {-webkit-transform: rotate(0deg);}
+			to {-webkit-transform: rotate(360deg);}
+		}
+
+		#collage {
+			position: absolute;
+			top: -9999px;
+			bottom: -9999px;
+			left: -9999px;
+			right: -9999px;
+			margin: auto;
+		}
+
+		#collage-holder {
+			width: 100%;
+			height: 100vh;
+			overflow: hidden;
+			position: relative;
+			display: none;
+		}
+
+		#upload-form {
+			position: absolute;
+			top: calc(50vh - 245px);
+			left: calc(50% - 300px);
+			font-family: "Open Sans";
+			background-color: #3C3C46;
+			text-align: center;
+			width: 600px;
+			border-radius: 10px;
+			color: white;
+			padding: 10px;
+			box-sizing: border-box;
+			transition: opacity 0.5s;
+		}
+
+		#preview {
+			width: 300px;
+			height: 225px;
+			margin: auto;
+			display: block;
+			margin-bottom: 20px;
+		}
+
+		#file {
+			display: none;
+		}
+
+		.button {
+			cursor: pointer;
+			display: block;
+			width: 300px;
+			height: 40px;
+			border-radius: 5px;
+			font-size: 24px;
+			margin: auto;
+		}
+
+		#file-button {
+			margin-top: 50px;
+			background: #8DC26F;
+			margin-bottom: 20px;
+		}
+
+		#capture-button {
+			background: #E0B273;
+			margin-bottom: 10px;
+		}
+	</style>
+	<canvas id="scratch-canvas" style="display:none;"></canvas>
+	<div id="collage-holder">
+		<canvas id="collage"></canvas>
+	</div>
+
+	<div id="upload-form">
+		<h1>Chose an Image</h1>
+		<label for="file" id="file-button" class="button" >Browse</label>
+		<input type="file" id="file" accept="image/*" name="Browse">
+
+		<div id="capture-button" class="button">Capture</div>
+		<video id="preview"></video>
+	</div>
+
+	<img src="cat-spinner2.png" id="cat-spinner" width="400" height="332">
+	<script>
+		"use strict";
+		var preview = document.getElementById('preview');
+
+		 var p = navigator.webkitGetUserMedia(
+		 	{ audio: false, video: { width: 300, height: 300 } },
+		 	function(stream) {
+		 		preview.src = URL.createObjectURL(stream);
+		 		preview.onloadedmetadata = function(e) {
+            			preview.play();
+          		};
+		 	}, function(err) {
+		 		console.log(err);
+		 	});
+
+		 function dataURItoBlob(dataURI) {
+		    var binary = atob(dataURI.split(',')[1]);
+		    var array = [];
+		    for(var i = 0; i < binary.length; i++) {
+		        array.push(binary.charCodeAt(i));
+		    }
+		    return new Blob([new Uint8Array(array)], {type: 'image/jpeg'});
+		}
+
+
+		document.getElementById('file').addEventListener('change', function(event) {
+			uploadImage(event.target.files[0]);
+		});
+
+		document.getElementById('capture-button').addEventListener('click', function(ev) {
+			var canvas = document.getElementById('scratch-canvas');
+			canvas.getContext('2d').canvas.getContext('2d').drawImage(preview, 0, 0);
+			var data = canvas.toDataURL();
+			uploadImage(dataURItoBlob(data));
+		});
+
+		 document.ontouchmove = function(event){
+		 	event.preventDefault();
+		 };
+
+		 function uploadImage(file) {
+			 document.getElementById('upload-form').style.opacity = '0';
+			 document.getElementById('cat-spinner').style.display = 'block';
+			 document.getElementById('cat-spinner').style.opacity = '1';
+
+			 setTimeout(function() {
+				 document.getElementById('upload-form').style.display = 'none';
+			 }, 500);
+
+			 var req = new XMLHttpRequest();
+			 req.open('POST', 'http:/localhost:1234/');
+			 req.addEventListener('load', function() {
+				 showCollage(JSON.parse(req.responseText));
+			 });
+			 req.send(file);
+		 }
+
+		//showCollage(images);
+
+function showCollage(images) {
+		document.getElementById('cat-spinner').style.opacity = '0';
+		document.getElementById('cat-spinner').style.display = 'none';
+
+		var DIM = 8192;
+		var MIN_SCALE = 0.06;
+		var MAX_SCALE = 2;
+		var scaleAmount = MIN_SCALE;
+		var translateX = 0;
+		var translateY = 0;
+		var collage = document.getElementById('collage');
+		var collageCtx = collage.getContext('2d');
+
+		collage.setAttribute('width', '' + DIM);
+		collage.setAttribute('height', '' + DIM);
+		document.getElementById('collage-holder').style.display = 'block';
+
+
+		function scaleCanvas(scrollDelta) {
+			var percentDelta = scaleAmount * (scrollDelta / (DIM / 4));
+			scaleAmount = Math.max(scaleAmount + percentDelta, MIN_SCALE);
+			scaleAmount = Math.min(scaleAmount, MAX_SCALE);
+
+			collage.style.transform = 'translate(' + translateX + 'px, ' + translateY + 'px) scale(' + scaleAmount + ') ';
+		}
+
+		scaleCanvas(0);
+
+		var mousedown = false;
+		var oldX;
+		var oldY;
+		document.body.addEventListener('mousedown', function(event) {
+			oldX = event.screenX;
+			oldY = event.screenY;
+			mousedown = true;
+		});
+
+		document.body.addEventListener('mousemove', function(event) {
+			if (!mousedown)
+				return;
+
+			var deltaX = event.screenX - oldX;
+			var deltaY = event.screenY - oldY;
+			oldX = event.screenX;
+			oldY = event.screenY;
+
+			translateX += deltaX;
+			translateY += deltaY;
+
+			scaleCanvas(0);
+		});
+
+		document.body.addEventListener('mouseup', function(event) {
+			mousedown = false;
+		});
+
+		document.body.addEventListener('wheel', function(event) {
+			scaleCanvas(event.deltaY);
+			event.preventDefault();
+		});
+
+		for (var i = 0; i < images.length; i++) {
+			var column = images[i];
+
+			for (var j = 0; j < column.length; j++) {
+				var img = new Image();
+				(function() {
+					var myI = i;
+					var myJ = j;
+					var myImg = img;
+
+					img.addEventListener("load", function() {
+
+						collageCtx.drawImage(myImg, myI * 64, myJ * 64);
+					}, false);
+				})();
+				img.src = "imgurPics/" + images[i][j]; // ad jpg
+			}
+		}
+	}
+	</script>
+</body>
+</html>

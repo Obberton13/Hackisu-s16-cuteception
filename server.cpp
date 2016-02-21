@@ -63,7 +63,7 @@ struct handler {
 		{
 			//serve HTML file.
 			std::cout << "Serving HTML file: " << std::endl;
-			std::ifstream htmlfile("../thing.html");
+			std::ifstream htmlfile("client.html");
 			std::string str((std::istreambuf_iterator<char>(htmlfile)), std::istreambuf_iterator<char>());
 			std::cout << str << std::endl;
 			res = server::response::stock_reply(server::response::ok, str);
