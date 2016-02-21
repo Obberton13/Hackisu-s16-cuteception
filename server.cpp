@@ -9,6 +9,7 @@
 #include <memory>
 #include <unordered_map>
 #include <stdio.h>
+#include <string>
 
 using namespace Magick;
 namespace http = boost::network::http;
@@ -38,11 +39,11 @@ void generateFinalImage(Image* img, std::string*** strings) {
 
 std::string generateFilename()
 {
-	const char* alphanum = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890";
+	static const char* alphanum = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890";
 	std::string str = "";
 	for(int i = 0; i<8; i++)
 	{
-		str += alphanum[rand() % (sizeof(alphanum) - 1)];
+		str += alphanum[rand() % 62];
 	}
 	return str;
 }
@@ -54,9 +55,30 @@ void saveFile(std::string const& body, std::string const& fileName)
 	file.close();
 }
 
-std::unordered_multimap<int, std::string> colorImageMap;
-flann::Index<char>* colors = allocIndexFromTextFile("/Users/Nick/averagedPhotos/averageColors.txt", &colorImageMap);
+std::string stringsToJson(std::string*** strings, int height, int width)
+{
+	std::string toReturn;
+	toReturn += "[";
+	for(int x = 0; x < height-1; x++)
+	{
+		toReturn += "[";
+		for(int y = 0; y < width-1; y++)
+		{
+			toReturn += "\"" + *strings[x][y] + "\",";
+		}
+		toReturn += "\"" +*strings[x][width-1]+ "\"],";
+	}
+	toReturn += "[";
+	for(int y = 0; y < width-1; y++)
+	{
+		toReturn += "\"" + *strings[height-1][y] + "\",";
+	}
+	toReturn += "\"" +*strings[height-1][width-1]+ "\"]]";
+	return toReturn;
+}
 
+std::unordered_multimap<int, std::string> colorImageMap;
+flann::Index<char>* colors;
 struct handler {
 	void operator()(server::request const& req, server::response& res) {
 		if(req.method == "GET")
@@ -71,10 +93,12 @@ struct handler {
 		std::string filename = generateFilename();
 		Blob blob = getBlobFromString(req.body);
 		Image img(blob);
+		img.quality(95);
 		img.magick("JPEG");
 		//Geometry geo("128x128");
 		//img.sample(geo);
-		//img.filterType(FilterType.Lanczos);
+		//MagickLib::FilterTypes::LanczosFilter filtertype;
+		img.filterType(MagickLib::FilterTypes::LanczosFilter);
 		
 		//TODO take the image and do things to it to make it look cool.
 		//this would be the whole flann thing
@@ -89,10 +113,29 @@ struct handler {
 };
 
 int main() {
+	//for(int i =0; i<20; i++)
+	//{
+	//	strings.push_back(generateFilename());
+	//}
+	std::string*** strings;
+	strings = new std::string**[4];
+	for(int i = 0; i < 4; i++)
+	{
+		strings[i] = new std::string*[5];
+		for(int j = 0; j < 5; j++)
+		{
+			strings[i][j] = new std::string;
+			*strings[i][j] = generateFilename();
+		}
+	}
+	std::cout << stringsToJson(strings, 4, 5) << std::endl;
+	return 0;
+	colors = allocIndexFromTextFile("/Users/Nick/averagedPhotos/averageColors.txt", &colorImageMap);
 	InitializeMagick(NULL); 
 	handler myHandler;
 	server::options myOptions(myHandler);
 	server server(myOptions.port("1234"));
 	server.run();
+	
 	return 0;
 }
