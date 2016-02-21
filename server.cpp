@@ -10,6 +10,34 @@
 #include <memory>
 #include <unordered_map>
 #include <stdio.h>
+#include <string>
+#include <cmath>
+
+#define  labXr_32f  0.433953f /* = xyzXr_32f / 0.950456 */
+#define  labXg_32f  0.376219f /* = xyzXg_32f / 0.950456 */
+#define  labXb_32f  0.189828f /* = xyzXb_32f / 0.950456 */
+#define  labYr_32f  0.212671f /* = xyzYr_32f */
+#define  labYg_32f  0.715160f /* = xyzYg_32f */ 
+#define  labYb_32f  0.072169f /* = xyzYb_32f */ 
+#define  labZr_32f  0.017758f /* = xyzZr_32f / 1.088754 */
+#define  labZg_32f  0.109477f /* = xyzZg_32f / 1.088754 */
+#define  labZb_32f  0.872766f /* = xyzZb_32f / 1.088754 */
+#define  labRx_32f  3.0799327f  /* = xyzRx_32f * 0.950456 */
+#define  labRy_32f  (-1.53715f) /* = xyzRy_32f */
+#define  labRz_32f  (-0.542782f)/* = xyzRz_32f * 1.088754 */
+#define  labGx_32f  (-0.921235f)/* = xyzGx_32f * 0.950456 */
+#define  labGy_32f  1.875991f   /* = xyzGy_32f */ 
+#define  labGz_32f  0.04524426f /* = xyzGz_32f * 1.088754 */
+#define  labBx_32f  0.0528909755f /* = xyzBx_32f * 0.950456 */
+#define  labBy_32f  (-0.204043f)  /* = xyzBy_32f */
+#define  labBz_32f  1.15115158f   /* = xyzBz_32f * 1.088754 */
+#define  labT_32f   0.008856f
+
+#define labSmallScale_32f  7.787f
+#define labSmallShift_32f  0.13793103448275862f  /* 16/116 */
+#define labLScale_32f      116.f
+#define labLShift_32f      16.f
+#define labLScale2_32f     903.3f
 
 using namespace Magick;
 namespace http = boost::network::http;
@@ -62,11 +90,11 @@ void generateFinalImage(Image* img, std::string*** strings) {
 
 std::string generateFilename()
 {
-	const char* alphanum = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890";
+	static const char* alphanum = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890";
 	std::string str = "";
 	for(int i = 0; i<8; i++)
 	{
-		str += alphanum[rand() % (sizeof(alphanum) - 1)];
+		str += alphanum[rand() % 62];
 	}
 	return str;
 }
@@ -76,6 +104,61 @@ void saveFile(std::string const& body, std::string const& fileName)
 	std::ofstream file(fileName);
 	file << body;
 	file.close();
+}
+
+std::string stringsToJson(std::string*** strings, int height, int width)
+{
+	std::string toReturn;
+	toReturn += "[";
+	for(int x = 0; x < height-1; x++)
+	{
+		toReturn += "[";
+		for(int y = 0; y < width-1; y++)
+		{
+			toReturn += "\"" + *strings[x][y] + "\",";
+		}
+		toReturn += "\"" +*strings[x][width-1]+ "\"],";
+	}
+	toReturn += "[";
+	for(int y = 0; y < width-1; y++)
+	{
+		toReturn += "\"" + *strings[height-1][y] + "\",";
+	}
+	toReturn += "\"" +*strings[height-1][width-1]+ "\"]]";
+	return toReturn;
+}
+
+void RGBtoLAB(unsigned char const &r, unsigned char const &g, unsigned char const &b, float *l, float *a, float *bb)
+{
+	float x, y, z;
+	x = b * labXb_32f + g * labXg_32f + r * labXr_32f;
+	y = b * labYb_32f + g * labYg_32f + r * labYr_32f;
+	z = b * labZb_32f + g * labZg_32f + r * labZr_32f;
+	if(x > labT_32f) {
+		x=cbrt(x);
+	}
+	else {
+		x = x*labSmallScale_32f + labSmallShift_32f;
+	}
+
+	if( z > labT_32f ){
+		z = cbrt(z);
+	}
+	else {
+		z = z*labSmallScale_32f + labSmallShift_32f;
+	}
+
+	if( y > labT_32f ) {
+		y = cbrt(y);
+		*l = y*labLScale_32f - labLShift_32f;
+	}
+	else {
+		*l = y*labLScale2_32f;
+		y = y*labSmallScale_32f + labSmallShift_32f;
+	}
+	*a = 500.f*(x - y);
+	*bb = 200.f*(y - z);
+
 }
 
 struct handler {
@@ -92,10 +175,10 @@ struct handler {
 		std::string filename = generateFilename();
 		Blob blob = getBlobFromString(req.body);
 		Image img(blob);
-		//Geometry geo("128x128");
-		//img.sample(geo);
-		//img.filterType(FilterType.Lanczos);
-		
+		Geometry geo("128x128");
+		img.filterType(MagickLib::FilterTypes::LanczosFilter);
+		img.zoom(geo);
+
 		//TODO take the image and do things to it to make it look cool.
 		//this would be the whole flann thing
 
@@ -109,11 +192,29 @@ struct handler {
 };
 
 int main() {
+	//for(int i =0; i<20; i++)
+	//{
+	//	strings.push_back(generateFilename());
+	//}
+	std::string*** strings;
+	strings = new std::string**[4];
+	for(int i = 0; i < 4; i++)
+	{
+		strings[i] = new std::string*[5];
+		for(int j = 0; j < 5; j++)
+		{
+			strings[i][j] = new std::string;
+			*strings[i][j] = generateFilename();
+		}
+	}
+	std::cout << stringsToJson(strings, 4, 5) << std::endl;
+	return 0;
 	InitializeMagick(NULL); 
 	colorsIndex = allocIndexFromTextFile("/Users/Nick/averagedPhotos/averageColors.txt", &colorImageMap);
 	handler myHandler;
 	server::options myOptions(myHandler);
 	server server(myOptions.port("1234"));
 	server.run();
+	
 	return 0;
 }
