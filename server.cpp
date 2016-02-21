@@ -1,4 +1,5 @@
 #include <boost/network/protocol/http/server.hpp> 
+#include <cmath>
 #include <flann/flann.hpp>
 #include <flann/io/hdf5.h>
 #include <fstream>
@@ -43,6 +44,9 @@ namespace http = boost::network::http;
 struct handler;
 typedef boost::network::http::server<handler> server;
 
+std::unordered_multimap<int, std::string> colorImageMap;
+flann::Index<char>* colorsIndex;
+
 flann::Index<char>* allocIndexFromTextFile(const std::string& filename, std::unordered_multimap<int, std::string>* pointImageMap) {
 	std::ifstream inFileStream(filename, std::ifstream::in);
 	//TODO
@@ -61,7 +65,27 @@ Blob getBlobFromString(std::string const& source)
 }
 
 void generateFinalImage(Image* img, std::string*** strings) {
-	
+	int width = img->columns();
+	int height = img->rows();
+	img->colorSpace(RGBColorspace);
+	const PixelPacket* pixels = img->getConstPixels(0, 0, width, height);
+	for (int i = 0; i < height; i++) {
+		for (int j = 0; j < width; j++) {
+			Color color(pixels[(i * width) + height]);
+			float l, a, b;
+			//RGBtoLAB(color.redQuantum, color.greenQuantum, color.blueQuantum, &l, &a, &b);
+			
+			unsigned char lc, ac, bc;
+			lc = (unsigned char) roundf(l * (255.f / 100));
+			ac = (unsigned char) roundf(a + 128);
+			bc = (unsigned char) roundf(b + 128);
+
+
+
+			int labKey = (lc << 16) & (ac << 8) & bc;
+
+		}
+	}
 }
 
 std::string generateFilename()
@@ -148,8 +172,6 @@ void RGBtoLAB(unsigned char r, unsigned char g, unsigned char b, float *l, float
 	*bb = 200.f * (y - z);
 }
 
-std::unordered_multimap<int, std::string> colorImageMap;
-flann::Index<char>* colors;
 struct handler {
 	void operator()(server::request const& req, server::response& res) {
 		if(req.method == "GET")
@@ -164,13 +186,10 @@ struct handler {
 		std::string filename = generateFilename();
 		Blob blob = getBlobFromString(req.body);
 		Image img(blob);
-		img.quality(95);
-		img.magick("JPEG");
-		//Geometry geo("128x128");
-		//img.sample(geo);
-		//MagickLib::FilterTypes::LanczosFilter filtertype;
+		Geometry geo("128x128");
 		img.filterType(MagickLib::FilterTypes::LanczosFilter);
-		
+		img.zoom(geo);
+
 		//TODO take the image and do things to it to make it look cool.
 		//this would be the whole flann thing
 
@@ -214,8 +233,8 @@ int main() {
 	}
 	std::cout << stringsToJson(strings, 4, 5) << std::endl;
 	return 0;
-	colors = allocIndexFromTextFile("/Users/Nick/averagedPhotos/averageColors.txt", &colorImageMap);
 	InitializeMagick(NULL); 
+	colorsIndex = allocIndexFromTextFile("/Users/Nick/averagedPhotos/averageColors.txt", &colorImageMap);
 	handler myHandler;
 	server::options myOptions(myHandler);
 	server server(myOptions.port("1234"));
