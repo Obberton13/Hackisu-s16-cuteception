@@ -45,16 +45,8 @@ struct handler;
 typedef boost::network::http::server<handler> server;
 
 std::unordered_multimap<int, std::string> colorImageMap;
-flann::Index<char>* colorsIndex;
+flann::Index<flann::L2_3D<unsigned char> >* colorsIndex;
 
-flann::Index<char>* allocIndexFromTextFile(const std::string& filename, std::unordered_multimap<int, std::string>* pointImageMap) {
-	std::ifstream inFileStream(filename, std::ifstream::in);
-	//TODO
-	
-	std::cout << "Loading file " + filename << std::endl;
-	
-	return NULL;
-}
 
 Blob getBlobFromString(std::string const& source)
 {
@@ -161,6 +153,64 @@ void RGBtoLAB(unsigned char const &r, unsigned char const &g, unsigned char cons
 
 }
 
+flann::Index<flann::L2_3D<unsigned char> >* allocIndexFromTextFile(const std::string& filename, std::unordered_multimap<int, std::string>* pointImageMap) {
+	std::ifstream inFileStream(filename, std::ifstream::in);
+	
+	std::cout << "Loading file " + filename << std::endl;
+	//malloc array
+	std::string line;
+	int i;
+	for(i = 0; std::getline(inFileStream, line);++i)
+		;
+	unsigned char *matrix = (unsigned char *) malloc(sizeof(unsigned char) * i*3);
+	
+	i = 0;
+	std::ifstream file(filename, std::ifstream::in);
+	if(file.is_open()){
+		while( getline(file,line)){
+			std::istringstream ss(line);
+			std::istream_iterator<std::string> begin(ss), end;
+			std::vector<std::string> words(begin, end);
+			std::string filename = words[0];
+			if(words.size() < 4)
+				continue;
+			printf("%s\n", line.c_str());
+			std::string rs = words[1];
+			std::string gs = words[2];
+			std::string bs = words[3];
+
+			unsigned char r = (unsigned char) atoi(rs.c_str());
+			unsigned char g = (unsigned char) atoi(gs.c_str());
+			unsigned char b = (unsigned char) atoi(bs.c_str());
+
+			float lf, af, bf;
+			RGBtoLAB(r, g, b, &lf, &af, &bf);
+			unsigned char l = (unsigned char)roundf(lf * (255.f / 100));
+			unsigned char a = (unsigned char)roundf(af + 128);
+						  b = (unsigned char)roundf(bf + 128);
+
+
+			uint32_t pixel = 0;
+			pixel += l;
+			pixel = pixel << 8;
+			pixel += a;
+			pixel = pixel << 8;
+			pixel += b;
+			
+			pointImageMap->insert(std::make_pair(pixel, filename));
+			matrix[i*3 + 0] = l;
+			matrix[i*3 + 1] = a;
+			matrix[i*3 + 2] = b;
+			++i;
+		}
+	}
+
+	flann::Matrix<unsigned char> fMat(matrix, i, 3);
+	auto index = new flann::Index<flann::L2_3D<unsigned char>>(fMat, flann::KDTreeSingleIndexParams());
+	free(matrix);
+	return index;
+}
+
 struct handler {
 	void operator()(server::request const& req, server::response& res) {
 		if(req.method == "GET")
@@ -192,23 +242,6 @@ struct handler {
 };
 
 int main() {
-	//for(int i =0; i<20; i++)
-	//{
-	//	strings.push_back(generateFilename());
-	//}
-	std::string*** strings;
-	strings = new std::string**[4];
-	for(int i = 0; i < 4; i++)
-	{
-		strings[i] = new std::string*[5];
-		for(int j = 0; j < 5; j++)
-		{
-			strings[i][j] = new std::string;
-			*strings[i][j] = generateFilename();
-		}
-	}
-	std::cout << stringsToJson(strings, 4, 5) << std::endl;
-	return 0;
 	InitializeMagick(NULL); 
 	colorsIndex = allocIndexFromTextFile("/Users/Nick/averagedPhotos/averageColors.txt", &colorImageMap);
 	handler myHandler;
