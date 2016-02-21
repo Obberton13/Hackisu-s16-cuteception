@@ -115,7 +115,7 @@
 		<video id="preview"></video>
 	</div>
 
-	<img src="cat-spinner2.png" id="cat-spinner" width="400" height="332">
+	<img src="http://localhost:3000/cat-spinner2.png" id="cat-spinner" width="400" height="332">
 	<script>
 		"use strict";
 		var preview = document.getElementById('preview');
@@ -143,6 +143,7 @@
 
 		document.getElementById('file').addEventListener('change', function(event) {
 			uploadImage(event.target.files[0]);
+			console.log(event.target.files);
 		});
 
 		document.getElementById('capture-button').addEventListener('click', function(ev) {
@@ -166,19 +167,14 @@
 			 }, 500);
 
 			 var req = new XMLHttpRequest();
-			 req.open('POST', 'http:/localhost:1234/');
+			 req.open('POST', 'http://localhost:1234/');
 			 req.addEventListener('load', function() {
 				 showCollage(JSON.parse(req.responseText));
 			 });
 			 req.send(file);
 		 }
 
-		//showCollage(images);
-
 function showCollage(images) {
-		document.getElementById('cat-spinner').style.opacity = '0';
-		document.getElementById('cat-spinner').style.display = 'none';
-
 		var DIM = 8192;
 		var MIN_SCALE = 0.06;
 		var MAX_SCALE = 2;
@@ -236,10 +232,11 @@ function showCollage(images) {
 			event.preventDefault();
 		});
 
+		var loaded = 0;
 		for (var i = 0; i < images.length; i++) {
-			var column = images[i];
+			var row = images[i];
 
-			for (var j = 0; j < column.length; j++) {
+			for (var j = 0; j < row.length; j++) {
 				var img = new Image();
 				(function() {
 					var myI = i;
@@ -247,13 +244,25 @@ function showCollage(images) {
 					var myImg = img;
 
 					img.addEventListener("load", function() {
-
-						collageCtx.drawImage(myImg, myI * 64, myJ * 64);
+						collageCtx.drawImage(myImg, myJ * 64, myI * 64);
+						loaded++;
+						if (loaded == images.length * row.length) {
+							document.getElementById('cat-spinner').style.opacity = '0';
+							setTimeout(function() {
+								document.getElementById('cat-spinner').style.display = 'none';
+							}, 500);
+						}
 					}, false);
+
+					img.addEventListener("error", function() {
+						loaded++
+						console.log('error');
+					});
 				})();
-				img.src = "imgurPics/" + images[i][j]; // ad jpg
+				img.src = "http://localhost:3000/imgurPics/" + images[i][j]; // add jpg
 			}
 		}
+
 	}
 	</script>
 </body>
