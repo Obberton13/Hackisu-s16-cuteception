@@ -101,18 +101,18 @@
 			margin-bottom: 10px;
 		}
 	</style>
-	<canvas id="scratch-canvas" style="display:none;"></canvas>
+	<canvas id="scratch-canvas" width="640" height="480" style="display:none;"></canvas>
 	<div id="collage-holder">
 		<canvas id="collage"></canvas>
 	</div>
 
 	<div id="upload-form">
-		<h1>Chose an Image</h1>
+		<h1>Choose an Image</h1>
 		<label for="file" id="file-button" class="button" >Browse</label>
 		<input type="file" id="file" accept="image/*" name="Browse">
 
 		<div id="capture-button" class="button">Capture</div>
-		<video id="preview"></video>
+		<video id="preview" width="300px" height="225px"></video>
 	</div>
 
 	<img src="http://localhost:3000/cat-spinner2.png" id="cat-spinner" width="400" height="332">
@@ -121,7 +121,7 @@
 		var preview = document.getElementById('preview');
 
 		 var p = navigator.webkitGetUserMedia(
-		 	{ audio: false, video: { width: 300, height: 300 } },
+		 	{ audio: false, video: { width: 640, height: 480 } },
 		 	function(stream) {
 		 		preview.src = URL.createObjectURL(stream);
 		 		preview.onloadedmetadata = function(e) {
@@ -148,7 +148,7 @@
 
 		document.getElementById('capture-button').addEventListener('click', function(ev) {
 			var canvas = document.getElementById('scratch-canvas');
-			canvas.getContext('2d').canvas.getContext('2d').drawImage(preview, 0, 0);
+			canvas.getContext('2d').canvas.getContext('2d').drawImage(preview, 0, 0, 640, 480);
 			var data = canvas.toDataURL();
 			uploadImage(dataURItoBlob(data));
 		});
@@ -167,7 +167,7 @@
 			 }, 500);
 
 			 var req = new XMLHttpRequest();
-			 req.open('POST', 'http://localhost:1234/');
+			 req.open('POST', 'http://localhost:4444/');
 			 req.addEventListener('load', function() {
 				 showCollage(JSON.parse(req.responseText));
 			 });
@@ -231,6 +231,7 @@ function showCollage(images) {
 			scaleCanvas(event.deltaY);
 			event.preventDefault();
 		});
+
 
 		var loaded = 0;
 		for (var i = 0; i < images.length; i++) {

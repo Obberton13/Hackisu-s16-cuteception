@@ -1,12 +1,11 @@
 #include <algorithm>
 #include <boost/network/protocol/http/server.hpp> 
 #include <cmath>
-#include <flann/flann.hpp>
-#include <flann/io/hdf5.h>
 #include <fstream>
 #include <iostream>
 #include <streambuf>
 //#include <magick/api.h>
+#include <nanoflann.hpp>
 #include <Magick++.h>
 #include <memory>
 #include <unordered_map>
@@ -45,8 +44,56 @@ namespace http = boost::network::http;
 struct handler;
 typedef boost::network::http::server<handler> server;
 
-std::unordered_multimap<int, std::string> colorImageMap;
-flann::Index<flann::L2_3D<unsigned char> >* colorsIndex;
+template <typename T>
+struct PointCloud
+{
+	struct Point
+	{
+		T  x,y,z;
+	};
+
+	std::vector<Point>  pts;
+
+	// Must return the number of data points
+	inline size_t kdtree_get_point_count() const { return pts.size(); }
+
+	// Returns the distance between the vector "p1[0:size-1]" and the data point with index "idx_p2" stored in the class:
+	inline T kdtree_distance(const T *p1, const size_t idx_p2,size_t /*size*/) const
+	{
+		const T d0=p1[0]-pts[idx_p2].x;
+		const T d1=p1[1]-pts[idx_p2].y;
+		const T d2=p1[2]-pts[idx_p2].z;
+		return d0*d0+d1*d1+d2*d2;
+
+	}
+
+	// Returns the dim'th component of the idx'th point in the class:
+	// Since this is inlined and the "dim" argument is typically an immediate value, the
+	//  "if/else's" are actually solved at compile time.
+	inline T kdtree_get_pt(const size_t idx, int dim) const
+	{
+		if (dim==0) return pts[idx].x;
+		else if (dim==1) return pts[idx].y;
+		else return pts[idx].z;
+	}
+
+	// Optional bounding-box computation: return false to default to a standard bbox computation loop.
+	//   Return true if the BBOX was already computed by the class and returned in "bb" so it can be avoided to redo it again.
+	//   Look at bb.size() to find out the expected dimensionality (e.g. 2 or 3 for point clouds)
+	template <class BBOX>
+	bool kdtree_get_bbox(BBOX& /* bb */) const { return false; }
+
+};
+
+typedef nanoflann::KDTreeSingleIndexAdaptor<
+		nanoflann::L2_Simple_Adaptor<float, PointCloud<float>> ,
+		PointCloud<float>,
+		3 /* dim */
+		> my_kd_tree_t;
+
+	std::unordered_multimap<int, std::string> colorImageMap;
+	my_kd_tree_t* colorsIndex;
+	PointCloud<float> cloud;
 
 
 Blob getBlobFromString(std::string const& source)
@@ -75,7 +122,7 @@ void saveFile(std::string const& body, std::string const& fileName)
 	file.close();
 }
 
-std::string stringsToJson(std::string*** strings, int height, int width)
+std::string stringsToJson(std::string*** strings, int width, int height)
 {
 	std::string toReturn;
 	toReturn += "[";
@@ -142,67 +189,82 @@ void RGBtoLAB(unsigned char r, unsigned char g, unsigned char b, float *l, float
 }
 
 void generateFinalImage(Image* img, std::string*** strings) {
+	std::cout << "Number of features: " << std::to_string(colorsIndex->size()) << std::endl;
+	std::cout << "Dimenstionality: " << std::to_string(colorsIndex->veclen()) << std::endl;
+	std::cout.flush();
+
+
 	int width = img->columns();
 	int height = img->rows();
-	img->colorSpace(RGBColorspace);
+	img->quantizeColorSpace(RGBColorspace);
 	const PixelPacket* pixels = img->getConstPixels(0, 0, width, height);
 	for (int i = 0; i < height; i++) {
 		for (int j = 0; j < width; j++) {
-			Color color(pixels[(i * width) + height]);
+
+			Color color(pixels[(i * width) + j]);
 			float l, a, b;
 			RGBtoLAB(color.redQuantum(), color.greenQuantum(), color.blueQuantum(), &l, &a, &b);
-			
+			l *= (255.f/100);
+			a += 128;
+			b += 128;
+
+
 			unsigned char lc, ac, bc;
-			lc = (unsigned char) roundf(l * (255.f / 100));
-			ac = (unsigned char) roundf(a + 128);
-			bc = (unsigned char) roundf(b + 128);
 
+			size_t indices[5];
+			float distances[5];
+			float query[3] = {l, a, b};
+			colorsIndex->knnSearch(query, 5, indices, distances);
+			
+			while(true) {
+				int randIndex = indices[rand() % 5];
+				float closeL = cloud.kdtree_get_pt(randIndex, 0);
+				float closeA = cloud.kdtree_get_pt(randIndex, 1);
+				float closeB = cloud.kdtree_get_pt(randIndex, 2);
 
-			int labKey = (lc << 16) & (ac << 8) & bc;
-			unsigned char matD[3] = {lc, ac, bc};
-			int matResD[15];
-			typedef flann::Index<flann::L2_3D<unsigned char> >::DistanceType TDist;
+				int closeLabKey = ((int)closeL << 16) | ((int)closeA << 8) | (int)closeB;
 
-			TDist matDistD[15];
-			flann::Matrix<unsigned char> mat(matD, 1, 3);
-			flann::Matrix<int> matRes(matResD, 5, 3);
-			flann::Matrix<TDist> matDist(matDistD, 5, 3);
-
-			colorsIndex->knnSearch(mat, matRes, matDist, 5, flann::SearchParams());
-			int randIndex = rand() * 5;
-
-			unsigned char closeL = *(colorsIndex->getPoint(*matRes[3 * randIndex]));
-			unsigned char closeA = *(colorsIndex->getPoint(*matRes[3 * randIndex]));
-			unsigned char closeB = *(colorsIndex->getPoint(*matRes[3 * randIndex]));
-
-			int closeLabKey = (closeL << 16) & (closeA << 8) & closeB;
-
-			bool putIn = false;
-			auto range = colorImageMap.equal_range(closeLabKey);
-			for(auto it = range.first; it != range.second; it++) {
-				if (!putIn) {
-					strings[i][j] = &it->second;
-					putIn = true;
-				} else {
-					if (rand() > 0.5)
+				bool putIn = false;
+				auto range = colorImageMap.equal_range(closeLabKey);
+				for(auto it = range.first; it != range.second; it++) {
+					if (!putIn) {
 						strings[i][j] = &it->second;
+						putIn = true;
+					} else {
+						if (rand() % 10 > 5) 
+							strings[i][j] = &it->second;
+					}
 				}
+
+				if (i == 0 && j == 0)
+					break;
+
+				if (i == 0 && strings[i][j] != strings[i][j - 1])
+					break;
+
+				if (j == 0 && strings[i][j] != strings[i - 1][j])
+					break;
+
+				if (strings[i][j] != strings[i][j - 1] && strings[i][j] != strings[i - 1][j])
+					break;
 			}
 		}
 	}
+	std::cout << "Generated" << std::endl;
+	std::cout << "width: " << std::to_string(img->columns()) << std::endl;
+	std::cout << "height: " << std::to_string(img->rows()) << std::endl;
 }
 
-flann::Index<flann::L2_3D<unsigned char> >* allocIndexFromTextFile(const std::string& filename, std::unordered_multimap<int, std::string>* pointImageMap) {
+my_kd_tree_t* allocIndexFromTextFile(const std::string& filename, std::unordered_multimap<int, std::string>* pointImageMap) {
 	std::ifstream inFileStream(filename, std::ifstream::in);
 	
 	std::cout << "Loading file " + filename << std::endl;
 	//malloc array
 	std::string line;
 	int i;
-	for(i = 0; std::getline(inFileStream, line);++i)
+	for(i = 0; std::getline(inFileStream, line); ++i)
 		;
-	unsigned char *matrix = (unsigned char *) malloc(sizeof(unsigned char) * i*3);
-	
+	cloud.pts.resize(i);
 	i = 0;
 	std::ifstream file(filename, std::ifstream::in);
 	if(file.is_open()){
@@ -213,7 +275,6 @@ flann::Index<flann::L2_3D<unsigned char> >* allocIndexFromTextFile(const std::st
 			std::string filename = words[0];
 			if(words.size() < 4)
 				continue;
-			printf("%s\n", line.c_str());
 			std::string rs = words[1];
 			std::string gs = words[2];
 			std::string bs = words[3];
@@ -228,26 +289,21 @@ flann::Index<flann::L2_3D<unsigned char> >* allocIndexFromTextFile(const std::st
 			unsigned char a = (unsigned char)roundf(af + 128);
 						  b = (unsigned char)roundf(bf + 128);
 
-
-			uint32_t pixel = 0;
-			pixel += l;
-			pixel = pixel << 8;
-			pixel += a;
-			pixel = pixel << 8;
-			pixel += b;
+			int pixel = (l << 16) | (a << 8) | b;
 			
 			pointImageMap->insert(std::make_pair(pixel, filename));
-			matrix[i*3 + 0] = l;
-			matrix[i*3 + 1] = a;
-			matrix[i*3 + 2] = b;
+			cloud.pts[i].x = (float)l;
+			cloud.pts[i].y = (float)a;
+			cloud.pts[i].z = (float)b;
 			++i;
 		}
+
+		std::cout << "Read " << std::to_string(i) << " lines" << std::endl;
 	}
 
-	flann::Matrix<unsigned char> fMat(matrix, i, 3);
-	auto index = new flann::Index<flann::L2_3D<unsigned char>>(fMat, flann::KDTreeSingleIndexParams());
-	free(matrix);
-	return index;
+	auto tree = new my_kd_tree_t(3, cloud, nanoflann::KDTreeSingleIndexAdaptorParams(100));
+	tree->buildIndex();
+	return tree;
 }
 
 struct handler {
@@ -291,10 +347,10 @@ struct handler {
 
 int main() {
 	InitializeMagick(NULL); 
-	colorsIndex = allocIndexFromTextFile("static", &colorImageMap);
+	colorsIndex = allocIndexFromTextFile("/Users/Nick/Desktop/hack/Hackisu-s16-cuteception/static/cropped/info.txt", &colorImageMap);
 	handler myHandler;
 	server::options myOptions(myHandler);
-	server server(myOptions.port("1234"));
+	server server(myOptions.port("4444"));
 	server.run();
 	
 	return 0;
